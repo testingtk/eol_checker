@@ -8,6 +8,9 @@ permissions:
   issues: write
   contents: read
 
+env:
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
   eol-check:
     runs-on: ubuntu-latest
@@ -26,10 +29,14 @@ jobs:
           sudo apt update
           sudo apt install gh -y
 
+      - name: Configure GitHub CLI
+        run: |
+          # Configure gh CLI to use the token
+          gh auth setup-git
+          echo "✅ GitHub CLI configured"
+
       - name: Check for existing EOL issues
         id: check-issues
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           # Check if there are any open issues with the EOL label
           existing_issues=$(gh issue list --label eol --state open --json number,title --jq 'length')
@@ -122,8 +129,6 @@ jobs:
       - name: Compare with all existing open issues
         id: compare-issues
         if: hashFiles('should_create_issue') != '' && steps.check-issues.outputs.existing_issues != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           # Get the current issue content
           current_issue_content=$(cat eol_issue.md)
@@ -196,8 +201,6 @@ jobs:
 
       - name: Update existing similar issue
         if: hashFiles('should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           # Add a comment to the existing issue with updated information
           similar_issue_number=${{ steps.compare-issues.outputs.similar_issue_number }}
@@ -208,8 +211,6 @@ jobs:
 
       - name: Close existing EOL issues if all clear
         if: hashFiles('close_issue.md') != '' && steps.check-issues.outputs.existing_issues != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           # Close any existing EOL issues since everything is now supported
           while read issue_number; do
