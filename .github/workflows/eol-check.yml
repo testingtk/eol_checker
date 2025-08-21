@@ -21,7 +21,7 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Check EOL and create issue
+      - name: Check EOL and create issue content
         run: |
           python -c "
           import sys, json
@@ -33,16 +33,62 @@ jobs:
           results = EOLChecker().check_multiple_tools(tools)
           html_report = save_results_html(results)
           
-          eol_tools = [r for r in results if r['eol_status'] == 'EOL']
-          if eol_tools:
+          # Critical items (EOL or EOL within 30 days)
+          critical_items = [r for r in results if r.get('criticality') == 'high']
+          
+          # Warning items (EOL within 90 days or unknown status)
+          warning_items = [r for r in results if r.get('criticality') == 'medium']
+          
+          # Create issue content if there are critical or warning items
+          if critical_items or warning_items:
               with open('eol_issue.md', 'w') as f:
                   f.write('## 🚨 EOL Tools Detected\\n\\n')
                   f.write(f'[📊 Download Full HTML Report](https://github.com/${{github.repository}}/actions/runs/${{github.run_id}})\\n\\n')
-                  for tool in eol_tools:
-                      f.write(f'- **{tool[\"tool_name\"]} {tool[\"current_version\"]}** - EOL: {tool[\"eol_date\"]}\\n')
+          
+                  if critical_items:
+                      f.write('### 🔴 Critical Priority\\n')
+                      f.write('These tools are either EOL or will reach EOL within 30 days:\\n\\n')
+                      for tool in critical_items:
+                          if tool['eol_status'] == 'EOL':
+                              status = '🔴 EOL'
+                          else:
+                              days = tool.get('days_until_eol', 'N/A')
+                              status = f'⚠️ EOL in {days} days'
+                          f.write(f'- **{tool[\"tool_name\"]} {tool[\"current_version\"]}** - {status} (EOL: {tool[\"eol_date\"]}, Latest: {tool.get(\"latest_version\", \"Unknown\")})\\n')
+                      f.write('\\n')
+          
+                  if warning_items:
+                      f.write('### 🟡 Warning Priority\\n')
+                      f.write('These tools have warnings or will reach EOL within 90 days:\\n\\n')
+                      for tool in warning_items:
+                          if tool['eol_status'] == 'EOL':
+                              status = '🔴 EOL'
+                          elif tool['eol_status'] == 'Supported':
+                              days = tool.get('days_until_eol', 'N/A')
+                              if days != 'N/A':
+                                  status = f'🟡 EOL in {days} days'
+                              else:
+                                  status = '🟡 Supported (no EOL date)'
+                          else:
+                              status = '🟡 Unknown status'
+                          f.write(f'- **{tool[\"tool_name\"]} {tool[\"current_version\"]}** - {status} (EOL: {tool[\"eol_date\"]}, Latest: {tool.get(\"latest_version\", \"Unknown\")})\\n')
+                      f.write('\\n')
+          
+                  f.write('### 📊 Summary\\n')
+                  f.write(f'- Total tools checked: {len(results)}\\n')
+                  f.write(f'- 🔴 Critical items: {len(critical_items)}\\n')
+                  f.write(f'- 🟡 Warning items: {len(warning_items)}\\n')
+                  f.write(f'- ✅ Supported items: {len([r for r in results if r[\"eol_status\"] == \"Supported\" and r.get(\"criticality\") == \"low\"])}\\n')
+          
+                  f.write('\\n### 💡 Recommendations\\n')
+                  f.write('1. Prioritize updating critical items immediately\\n')
+                  f.write('2. Plan updates for warning items in the near future\\n')
+                  f.write('3. Review the full HTML report for complete details\\n')
+          
           else:
               with open('close_issue.md', 'w') as f:
-                  f.write('✅ All tools are now supported! No EOL tools detected. Closing this issue.\\n')
+                  f.write('✅ All tools are supported! No critical or warning EOL tools detected. Closing this issue.\\n')
+                  f.write(f'Total tools checked: {len(results)}\\n')
           "
 
       - name: Upload HTML Report
@@ -57,10 +103,18 @@ jobs:
           sudo apt update
           sudo apt install gh -y
 
-      - name: Create issue if EOL found
+      - name: Create issue for critical/warning EOL tools
         if: hashFiles('eol_issue.md') != ''
         uses: peter-evans/create-issue-from-file@v5
         with:
-          title: "EOL Tools Detected"
+          title: "EOL Tools Detected - Critical and Warning Items"
           content-filepath: eol_issue.md
-          labels: eol,dependencies
+          labels: eol,dependencies,security
+
+      - name: Close existing EOL issues if all clear
+        if: hashFiles('close_issue.md') != ''
+        run: |
+          # Close any existing EOL issues since everything is now supported
+          gh issue list --label eol --state open --json number --jq '.[].number' | while read issue_number; do
+            gh issue close $issue_number --comment "All tools are now supported! No critical or warning EOL tools detected."
+          done
