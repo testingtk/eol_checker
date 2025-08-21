@@ -65,6 +65,7 @@ jobs:
         if: hashFiles('data/output/should_create_issue') != '' && steps.check-issues.outputs.existing_issues != '0'
         run: |
           cd data/output
+          chmod +x ../../src/eol_workflow.sh
           ../../src/eol_workflow.sh compare-issues
 
       - name: Upload HTML Report artifact
@@ -86,7 +87,6 @@ jobs:
         if: hashFiles('data/output/should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
         run: |
           cd data/output
-          chmod +x ../../src/eol_workflow.sh
           ../../src/eol_workflow.sh update-issue ${{ steps.compare-issues.outputs.similar_issue_number }}
 
       - name: Close existing EOL issues if all clear
