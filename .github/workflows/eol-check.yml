@@ -16,68 +16,98 @@ jobs:
   eol-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: 'pip'
 
-      - name: Install Dependencies
-        run: pip install -r requirements.txt
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Install GitHub CLI
-        run: sudo apt update && sudo apt install gh -y
-
-      - name: Generate Report
         run: |
-          python run.py --input data/input/tools.json
+          type -p gh >/dev/null || sudo apt update && sudo apt install -y gh
+
+      - name: Generate EOL report
+        run: |
+          python run.py --input data/input/tools.json --output-dir data/output/reports
 
       - name: Check EOL and generate issue content
         run: |
           python -m src.eol_checker \
             --repository ${{ github.repository }} \
-            --run-id ${{ github.run_id }}
+            --run-id ${{ github.run_id }} \
+            --output-dir data/output
 
       - name: Check for existing EOL issues
         id: check-issues
         run: |
           existing_issues=$(gh issue list --label eol --state open --json number,title --jq 'length' 2>/dev/null || echo "0")
           echo "existing_issues=$existing_issues" >> $GITHUB_OUTPUT
-          gh issue list --label eol --state open --json number --jq '.[].number' > open_issue_numbers.txt 2>/dev/null || true
-
+          gh issue list --label eol --state open --json number --jq '.[].number' > open_issue_numbers.txt 2>/dev/null || echo "" > open_issue_numbers.txt
 
       - name: Compare with existing issues
         id: compare-issues
-        if: hashFiles('should_create_issue') != '' && steps.check-issues.outputs.existing_issues != '0'
-        run: ./src/eol_workflow.sh compare-issues
+        if: hashFiles('data/output/should_create_issue') != '' && steps.check-issues.outputs.existing_issues != '0'
+        run: |
+          cd data/output
+          ../../src/eol_workflow.sh compare-issues
 
-      - name: Upload HTML Report
+      - name: Upload HTML Report artifact
         uses: actions/upload-artifact@v4
         with:
           name: eol-html-report
-          path: data/output/reports/*
+          path: data/output/reports/*.html
+          retention-days: 7
 
       - name: Create issue for critical/warning EOL tools
-        if: hashFiles('should_create_issue') != '' && (steps.check-issues.outputs.existing_issues == '0' || steps.compare-issues.outputs.duplicate_found == 'false')
+        if: hashFiles('data/output/should_create_issue') != '' && (steps.check-issues.outputs.existing_issues == '0' || steps.compare-issues.outputs.duplicate_found == 'false')
         uses: peter-evans/create-issue-from-file@v5
         with:
           title: "EOL Tools Detected - Critical and Warning Items"
-          content-filepath: eol_issue.md
+          content-filepath: data/output/eol_issue.md
           labels: eol,dependencies,security
 
       - name: Update existing similar issue
-        if: hashFiles('should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
-        run: ./src/eol_workflow.sh update-issue ${{ steps.compare-issues.outputs.similar_issue_number }}
+        if: hashFiles('data/output/should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
+        run: |
+          cd data/output
+          ../../src/eol_workflow.sh update-issue ${{ steps.compare-issues.outputs.similar_issue_number }}
 
       - name: Close existing EOL issues if all clear
-        if: hashFiles('close_issue.md') != '' && steps.check-issues.outputs.existing_issues != '0'
-        run: ./src/eol_workflow.sh close-issues
+        if: hashFiles('data/output/close_issue.md') != '' && steps.check-issues.outputs.existing_issues != '0'
+        run: |
+          cd data/output
+          ../../src/eol_workflow.sh close-issues
 
       - name: Skip issue creation (duplicate found)
-        if: hashFiles('should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
+        if: hashFiles('data/output/should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
         run: echo "Duplicate issue already exists (#${{ steps.compare-issues.outputs.similar_issue_number }}), skipping creation"
 
       - name: Clean up if no action needed
-        if: hashFiles('should_create_issue') == '' && hashFiles('close_issue.md') == ''
+        if: hashFiles('data/output/should_create_issue') == '' && hashFiles('data/output/close_issue.md') == ''
         run: echo "No EOL issues detected and no existing issues to close"
+
+      - name: Upload workflow logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-logs
+          path: |
+            **/*.log
+            **/debug.log
+          retention-days: 3
