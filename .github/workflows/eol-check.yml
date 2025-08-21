@@ -52,7 +52,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eol-html-report
-          path: data/output/reports/eol_report.html
+          path: data/output/reports/*
 
       - name: Create issue for critical/warning EOL tools
         if: hashFiles('should_create_issue') != '' && (steps.check-issues.outputs.existing_issues == '0' || steps.compare-issues.outputs.duplicate_found == 'false')
