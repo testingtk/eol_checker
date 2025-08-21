@@ -29,6 +29,10 @@ jobs:
       - name: Install GitHub CLI
         run: sudo apt update && sudo apt install gh -y
 
+      - name: Generate Report
+        run: |
+          python run.py --input data/input/tools.json
+
       - name: Check EOL and generate issue content
         run: |
           python -m src.eol_checker \
