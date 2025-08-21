@@ -1,0 +1,103 @@
+name: EOL Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'  # Run every Monday at midnight
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  eol-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install requests packaging
+
+      - name: Create directory structure
+        run: |
+          mkdir -p data/input data/output/reports src
+          cp tools.json data/input/tools.json
+          cp eol_checker.py src/
+          cp file_handlers.py src/
+          cp run.py ./
+
+      - name: Run EOL Checker
+        run: |
+          python run.py --input data/input/tools.json --output-dir data/output/reports --verbose
+
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: eol-html-report
+          path: data/output/reports/*.html
+
+      - name: Process results and create issue if needed
+        id: eol-results
+        run: |
+          # Get the latest JSON report
+          latest_json=$(ls -t data/output/reports/*.json | head -n1)
+          
+          # Parse results
+          eol_tools=$(python -c "
+          import json
+          with open('$latest_json', 'r') as f:
+              data = json.load(f)
+          
+          eol_tools = [r for r in data['tools'] if r['eol_status'] == 'EOL']
+          
+          if eol_tools:
+              print('true')
+              with open('eol_issue.md', 'w') as f:
+                  f.write('## 🚨 EOL Tools Detected\\n\\n')
+                  f.write(f'📊 [View Full HTML Report](https://github.com/${{GITHUB_REPOSITORY}}/actions/runs/${{GITHUB_RUN_ID}})\\n\\n')
+                  f.write('| Tool | Version | EOL Date | Latest Version |\\n')
+                  f.write('|------|---------|----------|----------------|\\n')
+                  for tool in eol_tools:
+                      f.write(f'| {tool[\"tool_name\"]} | {tool[\"current_version\"]} | {tool[\"eol_date\"]} | {tool.get(\"latest_version\", \"Unknown\")} |\\n')
+                  f.write('\\n### Recommendations\\n')
+                  f.write('- Prioritize updating EOL tools to supported versions\\n')
+                  f.write('- Check the HTML report for detailed information\\n')
+          else:
+              print('false')
+              with open('close_issue.md', 'w') as f:
+                  f.write('✅ All tools are now supported! No EOL tools detected.\\n')
+                  f.write('📊 [View Full HTML Report](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})\\n')
+          ")
+
+      - name: Create issue if EOL found
+        if: steps.eol-results.outputs.eol_tools == 'true'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "EOL Tools Detected - $(date +'%Y-%m-%d')"
+          content-filepath: eol_issue.md
+          labels: eol,dependencies,security
+
+      - name: Close existing issues if no EOL found
+        if: steps.eol-results.outputs.eol_tools == 'false'
+        run: |
+          # Install GitHub CLI
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh -y
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Close existing EOL issues
+          issues=$(gh issue list --label eol --state open --json number --jq '.[].number')
+          for issue in $issues; do
+            gh issue close $issue --comment "Automatically closed: No EOL tools detected in the latest scan."
+          done
