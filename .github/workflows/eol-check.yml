@@ -21,6 +21,22 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Install GitHub CLI
+        run: |
+          sudo apt update
+          sudo apt install gh -y
+
+      - name: Check for existing EOL issues
+        id: check-issues
+        run: |
+          # Check if there are any open issues with the EOL label
+          existing_issues=$(gh issue list --label eol --state open --json number,title --jq 'length')
+          echo "existing_issues=$existing_issues" >> $GITHUB_OUTPUT
+          
+          # Get all open EOL issue numbers
+          gh issue list --label eol --state open --json number --jq '.[].number' > open_issue_numbers.txt
+          echo "Open EOL issues: $(cat open_issue_numbers.txt)"
+
       - name: Check EOL and create issue content
         run: |
           python -c "
@@ -85,6 +101,19 @@ jobs:
                   f.write('2. Plan updates for warning items in the near future\\n')
                   f.write('3. Review the full HTML report for complete details\\n')
           
+          # Save results to JSON for comparison
+          with open('eol_results.json', 'w') as f:
+              json.dump({
+                  'critical_items': [{'tool_name': item['tool_name'], 'version': item['current_version']} for item in critical_items],
+                  'warning_items': [{'tool_name': item['tool_name'], 'version': item['current_version']} for item in warning_items],
+                  'total_tools': len(results),
+                  'timestamp': '$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")'
+              }, f, indent=2)
+          
+          # Create a flag file if we should create an issue
+          if critical_items or warning_items:
+              with open('should_create_issue', 'w') as f:
+                  f.write('true')
           else:
               with open('close_issue.md', 'w') as f:
                   f.write('✅ All tools are supported! No critical or warning EOL tools detected. Closing this issue.\\n')
@@ -97,24 +126,106 @@ jobs:
           name: eol-html-report
           path: data/output/reports/eol_report.html
 
-      - name: Install GitHub CLI
-        if: hashFiles('close_issue.md') != ''
+      - name: Compare with all existing open issues
+        id: compare-issues
+        if: hashFiles('should_create_issue') != '' && steps.check-issues.outputs.existing_issues != '0'
         run: |
-          sudo apt update
-          sudo apt install gh -y
+          # Get the current issue content
+          current_issue_content=$(cat eol_issue.md)
+          current_hash=$(echo "$current_issue_content" | sha256sum | cut -d' ' -f1)
+          echo "Current issue hash: $current_hash"
+          
+          # Initialize variables
+          duplicate_found=false
+          similar_issue_number=""
+          
+          # Read all open issue numbers
+          while read issue_number; do
+            if [ -n "$issue_number" ]; then
+              echo "Checking issue #$issue_number..."
+          
+              # Get issue content
+              issue_content=$(gh issue view $issue_number --json body --jq '.body')
+              issue_hash=$(echo "$issue_content" | sha256sum | cut -d' ' -f1)
+          
+              echo "Issue #$issue_number hash: $issue_hash"
+          
+              # Compare hashes
+              if [ "$current_hash" = "$issue_hash" ]; then
+                echo "Duplicate found in issue #$issue_number"
+                duplicate_found=true
+                similar_issue_number=$issue_number
+                break
+              fi
+          
+              # Also check if the issue has similar content (same critical/warning items)
+              current_critical_count=$(grep -c "Critical items:" eol_issue.md || true)
+              current_warning_count=$(grep -c "Warning items:" eol_issue.md || true)
+          
+              issue_critical_count=$(echo "$issue_content" | grep -c "Critical items:" || true)
+              issue_warning_count=$(echo "$issue_content" | grep -c "Warning items:" || true)
+          
+              if [ "$current_critical_count" = "$issue_critical_count" ] && [ "$current_warning_count" = "$issue_warning_count" ]; then
+                echo "Similar issue found #$issue_number with same item counts"
+                # Check if the actual tool lists are similar
+                current_tools=$(grep -oE "\*\*[^*]+\*\*" eol_issue.md | sort)
+                issue_tools=$(echo "$issue_content" | grep -oE "\*\*[^*]+\*\*" | sort)
+          
+                if [ "$current_tools" = "$issue_tools" ]; then
+                  echo "Exact same tools found in issue #$issue_number"
+                  duplicate_found=true
+                  similar_issue_number=$issue_number
+                  break
+                fi
+              fi
+            fi
+          done < open_issue_numbers.txt
+          
+          echo "duplicate_found=$duplicate_found" >> $GITHUB_OUTPUT
+          echo "similar_issue_number=$similar_issue_number" >> $GITHUB_OUTPUT
+          
+          if [ "$duplicate_found" = "true" ]; then
+            echo "Duplicate issue found, skipping creation"
+            rm should_create_issue
+          else
+            echo "No duplicates found, proceeding with issue creation"
+          fi
 
       - name: Create issue for critical/warning EOL tools
-        if: hashFiles('eol_issue.md') != ''
+        if: hashFiles('should_create_issue') != '' && (steps.check-issues.outputs.existing_issues == '0' || steps.compare-issues.outputs.duplicate_found == 'false')
         uses: peter-evans/create-issue-from-file@v5
         with:
           title: "EOL Tools Detected - Critical and Warning Items"
           content-filepath: eol_issue.md
           labels: eol,dependencies,security
 
+      - name: Update existing similar issue
+        if: hashFiles('should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
+        run: |
+          # Add a comment to the existing issue with updated information
+          similar_issue_number=${{ steps.compare-issues.outputs.similar_issue_number }}
+          echo "Updating existing issue #$similar_issue_number with new check timestamp"
+          
+          # Add a comment with the new run information
+          gh issue comment $similar_issue_number --body "✅ EOL status re-checked on $(date -u +'%Y-%m-%d %H:%M:%S UTC'). Status remains unchanged. [View latest run](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+
       - name: Close existing EOL issues if all clear
-        if: hashFiles('close_issue.md') != ''
+        if: hashFiles('close_issue.md') != '' && steps.check-issues.outputs.existing_issues != '0'
         run: |
           # Close any existing EOL issues since everything is now supported
-          gh issue list --label eol --state open --json number --jq '.[].number' | while read issue_number; do
-            gh issue close $issue_number --comment "All tools are now supported! No critical or warning EOL tools detected."
-          done
+          while read issue_number; do
+            if [ -n "$issue_number" ]; then
+              echo "Closing issue #$issue_number"
+              gh issue close $issue_number --comment "All tools are now supported! No critical or warning EOL tools detected. Closing this issue."
+            fi
+          done < open_issue_numbers.txt
+
+      - name: Skip issue creation (duplicate found)
+        if: hashFiles('should_create_issue') != '' && steps.compare-issues.outputs.duplicate_found == 'true'
+        run: |
+          echo "Duplicate issue already exists (#${{ steps.compare-issues.outputs.similar_issue_number }}), skipping creation"
+
+      - name: Clean up if no action needed
+        if: hashFiles('should_create_issue') == '' && hashFiles('close_issue.md') == ''
+        run: |
+          echo "No EOL issues detected and no existing issues to close"
