@@ -57,7 +57,6 @@ jobs:
 
       - name: Create GitHub issues for critical and warning tools
         run: |
-          chmod +x ./scripts/create_github_issues.sh
-          ./scripts/create_github_issues.sh
+          python scripts/create_issues_python.py
         env:
           GH_TOKEN: ${{ github.token }}
