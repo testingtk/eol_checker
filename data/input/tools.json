@@ -10,6 +10,6 @@
   {"name": "Nginx", "version": "1.18"},
   {"name": "Nginx", "version": "1.20"},
   {"name": "PostgreSQL", "version": "16"},
-  {"name": "docker-engine", "version": "20.10"},
+  {"name": "docker-engine", "version": "28.3"},
   {"name": "rabbitmq", "version": "4.1"}
 ]
