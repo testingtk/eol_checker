@@ -5,9 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="90ecd44c-3617-4739-a832-fa1b8028afb2" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/scripts/issue_closer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/workflows/eol-check.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/eol-check.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/create_issues_python.py" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/issue_creator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/output/reports/eol_report_20250822_131401.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/output/reports/eol_report_20250822_131401.json" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
