@@ -7,7 +7,7 @@
   {"name": "Java", "version": "8"},
   {"name": "Java", "version": "11"},
   {"name": "Nginx", "version": "1.18"},
-  {"name": "Nginx", "version": "1.20"},
+  {"name": "Nginx", "version": "1.29"},
   {"name": "PostgreSQL", "version": "14"},
   {"name": "docker-engine", "version": "23.0"},
   {"name": "rabbitmq", "version": "4.1"}
