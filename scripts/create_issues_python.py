@@ -59,9 +59,25 @@ This issue has been automatically closed because the EOL status has been resolve
         print(f"Failed to close issue #{issue_number} for {tool_name}")
         return False
 
-def update_issue_status(issue_number, tool_name, current_version, new_status, new_criticality, new_eol_date, new_latest_version):
+def update_issue_status(issue_number, tool_name, current_version, new_status, new_criticality, new_eol_date, new_latest_version, days_until_eol):
     """Update an existing issue with new status information"""
+    # Build detailed update message based on criticality
+    if new_criticality == 'critical':
+        urgency = "🚨 **URGENT ACTION REQUIRED**"
+        timeline = "IMMEDIATE attention required"
+    elif new_criticality == 'warning':
+        urgency = "⚠️ **WARNING**"
+        if days_until_eol != 'N/A' and isinstance(days_until_eol, int):
+            timeline = f"{days_until_eol} days until EOL"
+        else:
+            timeline = "Approaching EOL"
+    else:
+        urgency = "ℹ️ **INFO**"
+        timeline = "Monitoring recommended"
+
     comment = f"""📊 **Status Update**
+
+{urgency}
 
 **Tool:** {tool_name}
 **Version:** {current_version}
@@ -69,6 +85,7 @@ def update_issue_status(issue_number, tool_name, current_version, new_status, ne
 **New Criticality:** {new_criticality}
 **EOL Date:** {new_eol_date}
 **Latest Version:** {new_latest_version}
+**Timeline:** {timeline}
 **Updated on:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 The status of this EOL issue has changed. Please review the updated information."""
@@ -82,7 +99,7 @@ The status of this EOL issue has changed. Please review the updated information.
         current_labels = [label['name'] for label in issue_details['labels']]
 
         # Remove old criticality labels
-        labels_to_remove = [label for label in current_labels if label in ['critical', 'warning', 'low']]
+        labels_to_remove = [label for label in current_labels if label in ['critical', 'warning', 'low', 'info']]
 
         # Add new criticality label
         labels_to_add = [new_criticality]
@@ -111,12 +128,13 @@ def parse_issue_title(title):
 def should_close_issue(current_tool, old_status):
     """Determine if an issue should be closed based on current status"""
     # Conditions for closing:
-    # 1. Status improved from EOL to Supported
-    if old_status == 'EOL' and current_tool['eol_status'] == 'Supported':
+    # 1. Status improved from EOL to Supported and not critical/warning
+    if (old_status == 'EOL' and current_tool['eol_status'] == 'Supported' and
+        current_tool.get('criticality') not in ['high', 'medium']):
         return True
 
-    # 2. Criticality improved significantly
-    if old_status == 'EOL' and current_tool.get('criticality') in ['low', None]:
+    # 2. Criticality improved to low/none
+    if current_tool.get('criticality') in ['low', None]:
         return True
 
     # 3. Tool is no longer in the report (probably upgraded)
@@ -138,6 +156,130 @@ def should_update_issue(current_tool, old_status):
         return True
 
     return False
+
+def create_detailed_issue_body(tool_name, current_version, eol_status, eol_date, latest_version, criticality, days_until_eol, additional_info=None):
+    """Create detailed issue body with comprehensive information"""
+
+    # Build urgency section based on criticality
+    if criticality == 'critical':
+        urgency_section = """## 🚨 CRITICAL URGENCY
+
+**IMMEDIATE ACTION REQUIRED** - This tool version has reached End-of-Life or will reach EOL within 30 days. Security vulnerabilities will not be patched."""
+
+        timeline_info = "**IMMEDIATE** - EOL date has passed or is within 30 days"
+        priority = "**Highest Priority** - Address immediately"
+
+    elif criticality == 'warning':
+        if days_until_eol != 'N/A' and isinstance(days_until_eol, int):
+            timeline_info = f"**{days_until_eol} days until EOL** - {eol_date}"
+
+            if days_until_eol <= 60:
+                urgency_level = "HIGH PRIORITY"
+            else:
+                urgency_level = "MEDIUM PRIORITY"
+
+            urgency_section = f"""## ⚠️ WARNING - {urgency_level}
+
+**PLANNED ACTION REQUIRED** - This tool version will reach End-of-Life soon. Plan upgrade strategy."""
+
+        else:
+            timeline_info = f"**EOL Date:** {eol_date}"
+            urgency_section = """## ⚠️ WARNING
+
+**PLANNED ACTION REQUIRED** - This tool version has EOL concerns. Review upgrade options."""
+
+        priority = "**Medium Priority** - Plan and schedule upgrade"
+
+    else:
+        urgency_section = """## ℹ️ INFORMATION
+
+**MONITORING RECOMMENDED** - This tool version requires monitoring."""
+        timeline_info = f"**EOL Date:** {eol_date}"
+        priority = "**Low Priority** - Monitor and plan for future"
+
+    # Build risk assessment
+    if eol_status == 'EOL':
+        risk_level = "**HIGH RISK** - Security vulnerabilities, no patches"
+        impact = "**Critical Impact** - Potential security breaches, compliance issues"
+    elif eol_status == 'Supported':
+        risk_level = "**MEDIUM RISK** - Currently supported but approaching EOL"
+        impact = "**Moderate Impact** - Planning required to avoid future risks"
+    else:
+        risk_level = "**UNKNOWN RISK** - EOL status unclear"
+        impact = "**Unknown Impact** - Requires investigation"
+
+    # Build recommended actions based on criticality
+    if criticality == 'critical':
+        actions = """### 🚀 Recommended Immediate Actions:
+
+1. **IMMEDIATE UPGRADE** to latest version ({latest_version})
+2. **EMERGENCY TESTING** of new version in staging
+3. **IMMEDIATE DEPLOYMENT** to production
+4. **SECURITY REVIEW** for potential vulnerabilities
+5. **TEAM NOTIFICATION** of critical status"""
+
+    elif criticality == 'warning':
+        actions = f"""### 📅 Recommended Planned Actions:
+
+1. **UPGRADE PLANNING** to latest version ({latest_version})
+2. **TESTING SCHEDULE** within next 2 weeks
+3. **DEPLOYMENT TIMELINE** before EOL date
+4. **DEPENDENCY CHECK** for compatibility
+5. **DOCUMENTATION UPDATE** for new version
+6. **TEAM AWARENESS** of upcoming EOL"""
+
+    else:
+        actions = f"""### 📋 Recommended Monitoring Actions:
+
+1. **VERSION TRACKING** of {tool_name} releases
+2. **UPGRADE ROADMAP** planning
+3. **QUARTERLY REVIEW** of EOL status
+4. **DOCUMENTATION** of current version status"""
+
+    # Additional context section
+    context = """### 🔍 Additional Context:
+
+- **Automated Detection:** This issue was automatically generated by EOL Check workflow
+- **Frequency:** Scanned weekly for EOL status changes
+- **Data Source:** endoflife.date API
+- **Last Checked:** {current_time}"""
+
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Construct the full issue body
+    issue_body = f"""{urgency_section}
+
+### 📊 Tool Information:
+**Tool:** {tool_name}
+**Current Version:** {current_version}
+**Latest Version:** {latest_version}
+**Status:** {eol_status}
+**EOL Date:** {eol_date}
+**Days Until EOL:** {days_until_eol if days_until_eol != 'N/A' else 'Unknown'}
+**Criticality:** {criticality.upper()}
+
+### ⚠️ Risk Assessment:
+**Risk Level:** {risk_level}
+**Impact:** {impact}
+**Timeline:** {timeline_info}
+**Priority:** {priority}
+
+{actions}
+
+### 📝 Next Steps:
+- [ ] Assign to appropriate team member
+- [ ] Create upgrade plan
+- [ ] Test new version
+- [ ] Schedule deployment
+- [ ] Update documentation
+- [ ] Close issue after resolution
+
+{context.format(current_time=current_time)}"""
+
+    if additional_info:
+        issue_body += f"\n\n### 📋 Additional Information:\n{additional_info}"
+
+    return issue_body
 
 def check_and_manage_existing_issues(current_tools):
     """Check all existing issues and close/update them as needed"""
@@ -181,7 +323,8 @@ def check_and_manage_existing_issues(current_tools):
                         current_tool['eol_status'],
                         new_criticality,
                         current_tool['eol_date'],
-                        current_tool.get('latest_version', 'Unknown')
+                        current_tool.get('latest_version', 'Unknown'),
+                        current_tool.get('days_until_eol', 'N/A')
                     )
                     updated_count += 1
             else:
@@ -192,8 +335,8 @@ def check_and_manage_existing_issues(current_tools):
 
     return closed_count, updated_count
 
-def create_github_issue(tool_name, current_version, eol_status, eol_date, latest_version, criticality):
-    """Create a GitHub issue for a tool"""
+def create_github_issue(tool_name, current_version, eol_status, eol_date, latest_version, criticality, days_until_eol):
+    """Create a GitHub issue for a tool with detailed information"""
     issue_title = f"EOL Alert: {tool_name} {current_version} - {eol_status}"
 
     # Check if issue already exists (open or closed)
@@ -209,25 +352,11 @@ def create_github_issue(tool_name, current_version, eol_status, eol_date, latest
                 run_gh_command(['issue', 'reopen', str(issue['number'])])
                 return True
 
-    # Create issue body
-    issue_body = f"""## EOL Status Alert
-
-**Tool:** {tool_name}
-**Current Version:** {current_version}
-**Latest Version:** {latest_version}
-**Status:** {eol_status}
-**EOL Date:** {eol_date}
-**Criticality:** {criticality}
-**Report Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-### Recommended Actions:
-- [ ] Upgrade to latest version ({latest_version})
-- [ ] Review dependency compatibility
-- [ ] Update documentation
-- [ ] Test new version in staging environment
-
-### Additional Context:
-This alert was automatically generated by the EOL Check workflow."""
+    # Create detailed issue body
+    issue_body = create_detailed_issue_body(
+        tool_name, current_version, eol_status, eol_date,
+        latest_version, criticality, days_until_eol
+    )
 
     # Create issue
     print(f"Creating issue for: {tool_name} {current_version}")
@@ -303,7 +432,8 @@ def main():
             tool['eol_status'],
             tool['eol_date'],
             tool.get('latest_version', 'Unknown'),
-            'critical'
+            'critical',
+            tool.get('days_until_eol', 'N/A')
         ):
             critical_created += 1
 
@@ -316,7 +446,8 @@ def main():
             tool['eol_status'],
             tool['eol_date'],
             tool.get('latest_version', 'Unknown'),
-            'warning'
+            'warning',
+            tool.get('days_until_eol', 'N/A')
         ):
             warning_created += 1
 
