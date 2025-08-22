@@ -3,13 +3,12 @@
   {"name": "Python", "version": "3.13"},
   {"name": "Node.js", "version": "24"},
   {"name": "Node.js", "version": "24"},
-  {"name": "Ubuntu", "version": "25.04"},
-  {"name": "Ubuntu", "version": "25.04"},
+  {"name": "Ubuntu", "version": "20.11"},
   {"name": "Java", "version": "8"},
   {"name": "Java", "version": "11"},
   {"name": "Nginx", "version": "1.18"},
   {"name": "Nginx", "version": "1.20"},
   {"name": "PostgreSQL", "version": "14"},
-  {"name": "docker-engine", "version": "28.3"},
+  {"name": "docker-engine", "version": "21.3"},
   {"name": "rabbitmq", "version": "4.1"}
 ]
