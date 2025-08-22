@@ -57,6 +57,12 @@ jobs:
 
       - name: Create GitHub issues for critical and warning tools
         run: |
-          python scripts/create_issues_python.py
+          python scripts/issue_creator.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Closing GitHub resolved issues
+        run: |
+          python scripts/issue_closer.py
         env:
           GH_TOKEN: ${{ github.token }}
